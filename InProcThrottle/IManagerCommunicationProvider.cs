@@ -5,10 +5,8 @@ using System.Text;
 
 namespace InProcThrottle
 {
-    public interface ICommunicationProvider
+    public interface IManagerCommunicationProvider
     {
-        bool DoesScopeKeyExists(string tagKey);
-        bool IsOkToRun(string tagKey);
         void UpdateStatus(string tagKey, bool newStatus);
         void Clear();
     }

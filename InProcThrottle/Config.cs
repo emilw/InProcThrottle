@@ -7,8 +7,8 @@ namespace InProcThrottle
 {
     public class Config
     {
-        public int Percentage { get; set; }
+        public decimal Percentage { get; set; }
         public int TimeSpan { get; set; }
-        public ICommunicationProvider Provider { get; set; }
+        public IManagerCommunicationProvider Provider { get; set; }
     }
 }

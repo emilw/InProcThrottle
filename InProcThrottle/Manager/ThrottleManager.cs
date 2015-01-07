@@ -10,10 +10,10 @@ namespace InProcThrottle.Manager
     public static class ThrottleManager
     {
         private static Dictionary<string, Config> _configuration;
-        private static int SAMPLING_INTERVALL = 2000;
-        private static int _samplingPosition = 0;
-        private static int[] _cpuSamples;
+        private static int _samplingPosition;
+        private static decimal[] _cpuSamples;
         private static Timer _timer;
+        private static bool _initizalized = false;
 
         public static void Clear()
         {
@@ -27,31 +27,87 @@ namespace InProcThrottle.Manager
                 _timer.Stop();
                 _timer.Close();
             }
+
+            _initizalized = false;
         }
 
-        private static void init()
+        public static bool IsInitialized
         {
-            _configuration = new Dictionary<string,Config>();
-            _cpuSamples = new int[100];
-            _timer = new Timer(SAMPLING_INTERVALL);
+            get
+            {
+                return _initizalized;
+            }
+        }
+
+        public static void Init(int samplingIntervall)
+        {
+            _configuration = new Dictionary<string, Config>();
+            _cpuSamples = new decimal[100];
+            _samplingPosition = 0;
+            for (int i = 0; i < _cpuSamples.Count(); i++)
+                _cpuSamples[i] = 0;
+
+            _timer = new Timer(samplingIntervall);
             _timer.Elapsed += _timer_Elapsed;
             _timer.Start();
+
+            _initizalized = true;
+        }
+
+        public static void Init()
+        {
+            Init(2000);//2 sec
         }
 
         static void _timer_Elapsed(object sender, ElapsedEventArgs e)
         {
+            //If we are in the end of the sampling array, start over
+            if ((_samplingPosition+1) == _cpuSamples.Count())
+            {
+                _samplingPosition = 0;
+            }
+            
             _cpuSamples[_samplingPosition] = getCPUCounter();
-            _samplingPosition += 1;
+            _samplingPosition = _samplingPosition + 1;
+            saveStateForConfigurations();
         }
 
-        public static void Config<T>(string configTag, int cpuPercentage, int timeSpanInSeconds) where T: ICommunicationProvider, new()
+        private static void saveStateForConfigurations()
         {
-            if (_configuration == null)
-                init();
+            foreach (var key in _configuration.Keys)
+            {
+                var config = _configuration[key];
+                config.Provider.UpdateStatus(key, IsItOkToRun(key));
+            }
+        }
 
-            var provider = new T();
-            provider.UpdateStatus(configTag, true);
-            _configuration.Add(configTag, new Config(){Percentage = cpuPercentage, TimeSpan = timeSpanInSeconds, Provider = provider});
+        public static void Config<T>(string configTag, decimal cpuPercentage, int timeSpanInSeconds) where T: IManagerCommunicationProvider, new()
+        {
+            //To allow zero configuration, set the default settings if it's not Initialized explicitly
+            if (!IsInitialized)
+                Init();
+
+            //Update existing config
+            if (_configuration.ContainsKey(configTag))
+            {
+                var configItem = _configuration[configTag];
+                if (configItem.Provider.GetType() != typeof(T))
+                    throw new NotSupportedException("It's not supported to change a provider type for a given config key");
+
+                configItem.Percentage = cpuPercentage;
+                configItem.TimeSpan = timeSpanInSeconds;
+            }
+            else
+            {
+                var provider = new T();
+                provider.UpdateStatus(configTag, false);
+                _configuration.Add(configTag, new Config() { Percentage = cpuPercentage, TimeSpan = timeSpanInSeconds, Provider = provider });
+            }
+        }
+
+        public static int GetCurrentSampleCount()
+        {
+            return _samplingPosition;
         }
 
         public static IDictionary<string, Config> Configs
@@ -64,7 +120,35 @@ namespace InProcThrottle.Manager
             }
         }
 
-        private static int getCPUCounter()
+        public static bool IsItOkToRun(string keyTag)
+        {
+            return _configuration[keyTag].Percentage > CPUAverage;
+        }
+
+        public static decimal CPUAverage
+        {
+            get
+            {
+                if (_samplingPosition == 0)
+                    return 0;
+
+                return _cpuSamples.Where(x => x != 0).Average();
+            }
+        }
+
+        public static decimal CPULatest
+        {
+            get
+            {
+                int samplePos = _samplingPosition - 1;
+                if (samplePos < 0)
+                    samplePos = 0;
+
+                return _cpuSamples[samplePos];
+            }
+        }
+
+        private static decimal getCPUCounter()
         {
 
             PerformanceCounter cpuCounter = new PerformanceCounter();
@@ -78,7 +162,7 @@ namespace InProcThrottle.Manager
             // now matches task manager reading
             dynamic secondValue = cpuCounter.NextValue();
 
-            return secondValue;
+            return Convert.ToDecimal(secondValue);
         }
 
     }
