@@ -15,8 +15,8 @@ The Clients asks before they do anything that is concidered to be something that
 
 ##Setup
 ```java
-//Manager side
-ThrottleManager.Config<InterProcessProvider>("JobScope", 0, 360);
+//Manager side, set's the average CPU limit to 10 %
+ThrottleManager.Config<InterProcessProvider>("JobScope", 10, 360);
 
 //Client side - check every time manually
 ThrottleClient.CanIRun<InterProcessProvider>("JobScope");
